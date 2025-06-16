@@ -1,0 +1,16 @@
+# Data sets from competition
+39_Test_Dataset/
+39_Training_Dataset/
+
+# Processed data
+tabular_data_test_tsfel_catboost_gpu_v6/
+tabular_data_train_tsfel_catboost_gpu_v6/
+
+# Trained models
+trained_models_catboost_v6/
+
+# Catboost temporary directory
+catboost_info/
+
+# Output/Submission files
+*.csv

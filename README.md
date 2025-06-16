@@ -1,5 +1,6 @@
 ````markdown
-# AICUP 羽球運動分析競賽 - 選手特徵預測專案
+
+## AI CUP 2025 春季賽桌球智慧球拍資料的精準分析競賽
 
 ## 專案概述
 
@@ -83,7 +84,7 @@
     optuna
     tsfel
     joblib
-    notebook # or jupyterlab
+    jupyterlab
     ```
 
     使用以下指令進行安裝：

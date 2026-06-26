@@ -138,8 +138,6 @@ trained_models_catboost_v6/
 ### Private Leaderboard
 
 > **ROC AUC: 0.806**
->
-> 主辦方於未公開測試集計算,633 隊中名列第 14。
 
 <br>
 

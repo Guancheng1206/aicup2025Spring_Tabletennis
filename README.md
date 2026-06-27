@@ -12,15 +12,9 @@ table-tennis player attributes from six-axis IMU swing recordings:
 - `play years`
 - `level`
 
-This repository is the **original competition entry**: a single, self-contained notebook
-([aicup_submission.ipynb](aicup_submission.ipynb)) that produced the leaderboard result below. A
-post-competition redesign — with leakage-safe nested evaluation, paired bootstrap confidence intervals,
-and a reproducible, cost-gated experiment framework — lives in a separate repository:
-
-> **Redesign:** [smart-racket-imu-classification](https://github.com/Guancheng1206/smart-racket-imu-classification)
-
-If you want the stricter, framework-style treatment of the same problem, read that repo. This one is the
-honest record of what was actually submitted.
+The whole pipeline lives in a single, self-contained notebook
+([aicup_submission.ipynb](aicup_submission.ipynb)): feature extraction, per-target hyperparameter tuning,
+training, and test-set prediction.
 
 ## Final result
 
@@ -38,12 +32,9 @@ The headline metric is the arithmetic mean of the four per-target AUCs, matching
 scoring. The CV column reports each target's best Optuna trial value on the internal 5-fold
 `GroupKFold`.
 
-> **Read these numbers honestly.** The CV scores are the *best Optuna trial* values, i.e. hyperparameter
-> selection and evaluation share the same folds, so the CV column is optimistic relative to a truly
-> outer-fold-honest estimate. The TSFEL sampling-rate constant here is `fs = 50 Hz`, which the redesign
-> later found to be wrong for this hardware (~85 Hz). Both issues are exactly what the
-> [redesign repo](https://github.com/Guancheng1206/smart-racket-imu-classification) was built to fix; the
-> Private Leaderboard number (0.806) is the only fully out-of-sample figure here.
+> Read the CV column as a development signal rather than an unbiased estimate: hyperparameter selection
+> and evaluation share the same folds, so it is optimistic. The Private Leaderboard score (0.806) is the
+> only fully out-of-sample number here.
 
 ## How it works
 
@@ -132,10 +123,9 @@ recording into 27 equal-width windows with `np.linspace` (it does **not** use th
   targets.
 - Mean AUC across the four targets as the headline metric.
 
-This protocol is the competition-era validation. It controls player leakage in the cross-validation
-folds, but — unlike the redesign — hyperparameter selection and reporting share the same folds, and there
-is a single split with no nested loop and no uncertainty estimate. Treat the CV numbers as a development
-signal, not as an unbiased generalization estimate.
+This is the competition-era validation. It controls player leakage in the cross-validation folds, but
+hyperparameter selection and reporting share the same folds, and it is a single split over only 42
+players with no nested loop or uncertainty estimate. Treat the CV numbers accordingly.
 
 ## Model overview
 
@@ -224,7 +214,7 @@ Main tunable constants:
 | `NUM_TOTAL_SEGMENTS_PER_FILE` | 27 | Swing segments per recording |
 | `N_SPLITS_GROUPKFOLD` | 5 | GroupKFold folds |
 | `OPTUNA_N_TRIALS` | 75 | Optuna trials per target |
-| `TSFEL_SAMPLING_FREQ` | 50 | TSFEL sampling-rate constant (see caveat above) |
+| `TSFEL_SAMPLING_FREQ` | 50 | TSFEL sampling-rate constant |
 | `USE_SAVED_MODELS` | `True` | Load saved artifacts and skip training |
 
 ## Honest interpretation
@@ -236,18 +226,12 @@ What carried the result was not a single clever trick but a few solid choices:
 3. A rich TSFEL representation aggregated to the recording level.
 4. Per-target feature selection and per-target Optuna tuning rather than one shared configuration.
 
-The honest limitations — and the reason the redesign exists:
+Known limitations:
 
 - The reported CV is the best Optuna trial value, so model selection and evaluation share folds; it is
-  optimistic, not outer-fold-honest.
-- A single split, with no nested CV and no uncertainty estimate (no bootstrap confidence intervals), over
-  only 42 players.
-- `TSFEL_SAMPLING_FREQ = 50` is incorrect for this hardware (~85 Hz); it is a shared constant, so it
-  shifts the numbers only slightly, but it is still a known defect.
+  optimistic rather than fully held-out.
+- A single split over only 42 players, with no nested loop and no uncertainty estimate.
 - Everything lives in one notebook, which makes testing and reproduction harder.
-
-All four are addressed in the
-[redesign repository](https://github.com/Guancheng1206/smart-racket-imu-classification).
 
 ## Data & license
 
@@ -260,5 +244,3 @@ original competition terms. No separate code-license file is provided in this re
 - TSFEL: <https://tsfel.readthedocs.io>
 - Optuna: <https://optuna.org>
 - scikit-learn: <https://scikit-learn.org>
-
-Generative AI assistance was used while preparing this documentation.

@@ -49,30 +49,27 @@ scoring. The CV column reports each target's best Optuna trial value on the inte
 
 ```mermaid
 flowchart TD
-    RAW["<b>Raw IMU recording</b><br/><small style='color:#64748b'>one .txt · 27 swings · 6 axes</small>"]:::io
+    RAW["Raw IMU recording<br/>one .txt, 27 swings x 6 axes"]
 
-    subgraph FEAT ["① Feature pipeline (cached)"]
-        direction TB
-        SEG["<b>Split each recording into 27 swings</b><br/><small style='color:#64748b'>equal-width segments (not cut_point)</small>"]:::card
-        TS["<b>Per-swing TSFEL features</b><br/><small style='color:#64748b'>6 axes + 2 L2 magnitudes · 1,240 dims</small>"]:::card
-        AGG["<b>Aggregate to recording level</b><br/><small style='color:#64748b'>7 statistics · 8,680 dims</small>"]:::card
+    subgraph FEAT["Feature pipeline (cached)"]
+        SEG["Split into 27 swings<br/>equal-width segments"]
+        TS["Per-swing TSFEL features<br/>6 axes + 2 L2 magnitudes, 1,240 dims"]
+        AGG["Aggregate to recording level<br/>7 statistics, 8,680 dims"]
         SEG --> TS --> AGG
     end
 
-    subgraph SELF ["② Feature selection"]
-        direction TB
-        VT["<b>Drop near-constant features</b><br/><small style='color:#64748b'>VarianceThreshold 0.01 · 8,680 -> 7,534</small>"]:::card
-        KB["<b>Per-target SelectKBest (k via Optuna)</b><br/><small style='color:#64748b'>gender · play years · level</small>"]:::card
-        KEEP["<b>Keep all 7,534 features</b><br/><small style='color:#64748b'>hold racket handed</small>"]:::card
+    subgraph SELF["Feature selection"]
+        VT["Drop near-constant features<br/>VarianceThreshold 0.01, 8,680 to 7,534"]
+        KB["Per-target SelectKBest, k via Optuna<br/>gender / play years / level"]
+        KEEP["Keep all 7,534 features<br/>hold racket handed"]
         VT --> KB
         VT --> KEEP
     end
 
-    subgraph TRAIN ["③ Per-target tuning & training (x4)"]
-        direction TB
-        PRE["<b>Fold-local preprocessing</b><br/><small style='color:#64748b'>KNNImputer -> MinMaxScaler -> input noise (train only)</small>"]:::card
-        OPT["<b>Optuna TPE hyperparameter search</b><br/><small style='color:#64748b'>75 trials · 5-fold GroupKFold by player_id · MedianPruner</small>"]:::card
-        FIT["<b>Fit final CatBoost (GPU)</b><br/><small style='color:#64748b'>class-imbalance handling per target</small>"]:::card
+    subgraph TRAIN["Per-target tuning and training (x4)"]
+        PRE["Fold-local preprocessing<br/>KNNImputer, MinMaxScaler, input noise (train only)"]
+        OPT["Optuna TPE search<br/>75 trials, 5-fold GroupKFold by player_id"]
+        FIT["Fit final CatBoost (GPU)<br/>class-imbalance handling per target"]
         PRE --> OPT --> FIT
     end
 
@@ -80,16 +77,9 @@ flowchart TD
     AGG --> VT
     KB --> PRE
     KEEP --> PRE
-    FIT -. "persist / load" .-> ART[("<b>Per-target artifacts</b><br/><small style='color:#64748b'>model · imputer · scaler · params</small>")]:::art
-    FIT --> INF["<b>Test inference</b><br/><small style='color:#64748b'>predict_proba + safe fallback</small>"]:::card
-    INF --> SUB["<b>Submission probabilities</b><br/><small style='color:#64748b'>submission_catboost_tsfel_gpu_v6.csv</small>"]:::io
-
-    classDef card fill:#ffffff,stroke:#94a3b8,color:#1e293b,stroke-width:1px;
-    classDef io fill:#ffffff,stroke:#1e293b,color:#0f172a,stroke-width:1.6px;
-    classDef art fill:#ffffff,stroke:#cbd5e1,color:#334155,stroke-width:1px,stroke-dasharray:4 3;
-    style FEAT fill:#ffffff,stroke:#e2e8f0,color:#0f172a
-    style SELF fill:#ffffff,stroke:#e2e8f0,color:#0f172a
-    style TRAIN fill:#ffffff,stroke:#e2e8f0,color:#0f172a
+    FIT -. persist / load .-> ART[("Per-target artifacts<br/>model, imputer, scaler, params")]
+    FIT --> INF["Test inference<br/>predict_proba + safe fallback"]
+    INF --> SUB["Submission probabilities<br/>submission_catboost_tsfel_gpu_v6.csv"]
 ```
 
 Intermediate TSFEL features and the four per-target artifacts are cached to disk. With

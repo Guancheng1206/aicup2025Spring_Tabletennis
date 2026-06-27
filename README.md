@@ -33,36 +33,37 @@
 ## Pipeline
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Segoe UI, Helvetica, Arial, sans-serif','fontSize':'13px','lineColor':'#b0bec5','edgeLabelBackground':'#ffffff'}}}%%
 flowchart TD
-    A["📄 Raw .txt<br/>6-axis IMU · 27 swings / recording"]
+    A(["Raw .txt&nbsp;·&nbsp;6-axis IMU&nbsp;·&nbsp;27 swings"]):::io
 
-    subgraph FE["① 特徵工程 · Feature Engineering"]
+    subgraph FE ["① 特徵工程 Feature Engineering"]
         direction TB
-        B["TSFEL per-segment<br/>6 axes + 2 L2 magnitude = 8 signals<br/>1,240 dims × 27 segments"]
-        C["Aggregate · 7 statistics<br/>mean / std / median / min / max / skew / kurt<br/>→ 8,680 dims"]
+        B["TSFEL per-segment<br/>8 signals · 1,240 dims"]:::fe
+        C["Aggregate · 7 statistics<br/>8,680 dims"]:::fe
         B --> C
     end
 
-    subgraph SEL["② 特徵篩選 · Feature Selection"]
+    subgraph SEL ["② 特徵篩選 Feature Selection"]
         direction TB
-        D["VarianceThreshold(0.01)<br/>8,680 → 7,534 dims"]
-        K1["SelectKBest(f_classif)<br/>k tuned by Optuna<br/>gender · play years · level"]
-        K2["use all 7,534 dims<br/>hold racket handed"]
+        D["VarianceThreshold 0.01<br/>7,534 dims"]:::sel
+        K1["SelectKBest · k by Optuna<br/>gender · play years · level"]:::sel
+        K2["all 7,534 dims<br/>hold racket handed"]:::sel
         D --> K1
         D --> K2
     end
 
-    subgraph MODEL["③ 建模與調參 · Modeling & Tuning"]
+    subgraph MODEL ["③ 建模與調參 Modeling & Tuning"]
         direction TB
-        PRE["KNNImputer(5) → MinMaxScaler<br/>→ input noise (train only)"]
-        F["CatBoost (GPU) · per target × 4<br/>Optuna TPE · 75 trials · MedianPruner<br/>5-fold GroupKFold by player_id"]
+        PRE["KNNImputer → MinMaxScaler → input noise"]:::mdl
+        F["CatBoost GPU · 4 targets<br/>Optuna TPE · 75 trials<br/>5-fold GroupKFold by player_id"]:::mdl
         PRE --> F
     end
 
-    subgraph OUT["④ 推論與提交 · Inference"]
+    subgraph OUT ["④ 推論與提交 Inference"]
         direction TB
-        G["Test predict_proba<br/>Fallback: binary 0.5 · multi 1/n_classes"]
-        H["submission_*.csv · probabilities"]
+        G["Test predict_proba + fallback"]:::out
+        H(["submission.csv · probabilities"]):::io
         G --> H
     end
 
@@ -71,19 +72,18 @@ flowchart TD
     K1 --> PRE
     K2 --> PRE
     F --> G
-    F -. persist .-> P[("trained_models_*/<br/>.cbm · imputer · scaler · meta.json")]
-    P -. "USE_SAVED_MODELS=True · 跳過訓練" .-> G
+    F -. "persist / load" .-> P[("Artifacts<br/>model · imputer · scaler · meta")]:::art
 
-    M["🎯 4 targets · 評估指標<br/>gender · hold racket handed → ROC AUC<br/>play years · level → micro-OvR ROC AUC"]
-    F -.-> M
-
-    style FE fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
-    style SEL fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
-    style MODEL fill:#fff3e0,stroke:#ef6c00,color:#e65100
-    style OUT fill:#f3e5f5,stroke:#7b1fa2,color:#4a148c
-    style A fill:#eceff1,stroke:#546e7a
-    style P fill:#fffde7,stroke:#f9a825
-    style M fill:#fafafa,stroke:#9e9e9e,stroke-dasharray:3 3
+    classDef io fill:#0f172a,color:#ffffff,stroke:#0f172a,stroke-width:1px;
+    classDef fe  fill:#ffffff,stroke:#6366f1,color:#3730a3,stroke-width:1.2px;
+    classDef sel fill:#ffffff,stroke:#0891b2,color:#155e75,stroke-width:1.2px;
+    classDef mdl fill:#ffffff,stroke:#d97706,color:#92400e,stroke-width:1.2px;
+    classDef out fill:#ffffff,stroke:#16a34a,color:#166534,stroke-width:1.2px;
+    classDef art fill:#ffffff,stroke:#94a3b8,color:#334155,stroke-dasharray:4 3;
+    style FE fill:#eef2ff,stroke:#c7d2fe,color:#3730a3
+    style SEL fill:#ecfeff,stroke:#a5f3fc,color:#155e75
+    style MODEL fill:#fffbeb,stroke:#fde68a,color:#92400e
+    style OUT fill:#f0fdf4,stroke:#bbf7d0,color:#166534
 ```
 
 > 圖中 ② 已標明分叉:`SelectKBest` 僅套用於 `gender` / `play years` / `level`;`hold racket handed` 直接使用全部 7,534 維特徵。虛線回路表示 `USE_SAVED_MODELS=True` 時載入既有 artifact、跳過訓練直接推論。

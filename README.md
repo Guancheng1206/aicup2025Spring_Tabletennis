@@ -33,37 +33,37 @@
 ## Pipeline
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'fontFamily':'Segoe UI, Helvetica, Arial, sans-serif','fontSize':'13px','lineColor':'#b0bec5','edgeLabelBackground':'#ffffff'}}}%%
+﻿%%{init: {'theme':'base','themeVariables':{'fontFamily':'Segoe UI, Helvetica, Arial, sans-serif','fontSize':'14px','lineColor':'#cbd5e1','edgeLabelBackground':'#ffffff'}}}%%
 flowchart TD
-    A(["Raw .txt&nbsp;·&nbsp;6-axis IMU&nbsp;·&nbsp;27 swings"]):::io
+    A["<b>Raw .txt</b><br/><small style='color:#64748b'>6-axis IMU · 27 swings</small>"]:::io
 
-    subgraph FE ["① 特徵工程 Feature Engineering"]
+    subgraph FE ["① 特徵工程　Feature Engineering"]
         direction TB
-        B["TSFEL per-segment<br/>8 signals · 1,240 dims"]:::fe
-        C["Aggregate · 7 statistics<br/>8,680 dims"]:::fe
+        B["<b>TSFEL</b> per-segment<br/><small style='color:#64748b'>8 signals · 1,240 dims</small>"]:::card
+        C["<b>Aggregate</b> · 7 statistics<br/><small style='color:#64748b'>8,680 dims</small>"]:::card
         B --> C
     end
 
-    subgraph SEL ["② 特徵篩選 Feature Selection"]
+    subgraph SEL ["② 特徵篩選　Feature Selection"]
         direction TB
-        D["VarianceThreshold 0.01<br/>7,534 dims"]:::sel
-        K1["SelectKBest · k by Optuna<br/>gender · play years · level"]:::sel
-        K2["all 7,534 dims<br/>hold racket handed"]:::sel
+        D["<b>VarianceThreshold</b> 0.01<br/><small style='color:#64748b'>8,680 → 7,534 dims</small>"]:::card
+        K1["<b>SelectKBest</b> · k by Optuna<br/><small style='color:#64748b'>gender · play years · level</small>"]:::card
+        K2["<b>all 7,534 dims</b><br/><small style='color:#64748b'>hold racket handed</small>"]:::card
         D --> K1
         D --> K2
     end
 
-    subgraph MODEL ["③ 建模與調參 Modeling & Tuning"]
+    subgraph MODEL ["③ 建模與調參　Modeling &amp; Tuning"]
         direction TB
-        PRE["KNNImputer → MinMaxScaler → input noise"]:::mdl
-        F["CatBoost GPU · 4 targets<br/>Optuna TPE · 75 trials<br/>5-fold GroupKFold by player_id"]:::mdl
+        PRE["<b>KNNImputer</b> → <b>MinMaxScaler</b> → <b>input noise</b>"]:::card
+        F["<b>CatBoost</b> GPU · 4 targets<br/><small style='color:#64748b'>Optuna TPE · 75 trials · 5-fold GroupKFold</small>"]:::card
         PRE --> F
     end
 
-    subgraph OUT ["④ 推論與提交 Inference"]
+    subgraph OUT ["④ 推論與提交　Inference"]
         direction TB
-        G["Test predict_proba + fallback"]:::out
-        H(["submission.csv · probabilities"]):::io
+        G["<b>Test predict_proba</b><br/><small style='color:#64748b'>+ fallback (binary 0.5 · multi 1/n)</small>"]:::card
+        H["<b>submission.csv</b><br/><small style='color:#64748b'>probabilities</small>"]:::io
         G --> H
     end
 
@@ -72,18 +72,15 @@ flowchart TD
     K1 --> PRE
     K2 --> PRE
     F --> G
-    F -. "persist / load" .-> P[("Artifacts<br/>model · imputer · scaler · meta")]:::art
+    F -. "persist / load" .-> P[("<b>Artifacts</b><br/><small style='color:#64748b'>model · imputer · scaler · meta</small>")]:::art
 
-    classDef io fill:#0f172a,color:#ffffff,stroke:#0f172a,stroke-width:1px;
-    classDef fe  fill:#ffffff,stroke:#6366f1,color:#3730a3,stroke-width:1.2px;
-    classDef sel fill:#ffffff,stroke:#0891b2,color:#155e75,stroke-width:1.2px;
-    classDef mdl fill:#ffffff,stroke:#d97706,color:#92400e,stroke-width:1.2px;
-    classDef out fill:#ffffff,stroke:#16a34a,color:#166534,stroke-width:1.2px;
-    classDef art fill:#ffffff,stroke:#94a3b8,color:#334155,stroke-dasharray:4 3;
-    style FE fill:#eef2ff,stroke:#c7d2fe,color:#3730a3
-    style SEL fill:#ecfeff,stroke:#a5f3fc,color:#155e75
-    style MODEL fill:#fffbeb,stroke:#fde68a,color:#92400e
-    style OUT fill:#f0fdf4,stroke:#bbf7d0,color:#166534
+    classDef card fill:#ffffff,stroke:#94a3b8,color:#1e293b,stroke-width:1px;
+    classDef io fill:#ffffff,stroke:#1e293b,color:#0f172a,stroke-width:1.6px;
+    classDef art fill:#ffffff,stroke:#cbd5e1,color:#334155,stroke-width:1px,stroke-dasharray:4 3;
+    style FE fill:#ffffff,stroke:#e2e8f0,color:#0f172a
+    style SEL fill:#ffffff,stroke:#e2e8f0,color:#0f172a
+    style MODEL fill:#ffffff,stroke:#e2e8f0,color:#0f172a
+    style OUT fill:#ffffff,stroke:#e2e8f0,color:#0f172a
 ```
 
 > 圖中 ② 已標明分叉:`SelectKBest` 僅套用於 `gender` / `play years` / `level`;`hold racket handed` 直接使用全部 7,534 維特徵。虛線回路表示 `USE_SAVED_MODELS=True` 時載入既有 artifact、跳過訓練直接推論。

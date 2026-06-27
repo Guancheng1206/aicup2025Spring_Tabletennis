@@ -33,37 +33,37 @@
 ## Pipeline
 
 ```mermaid
-﻿%%{init: {'theme':'base','themeVariables':{'fontFamily':'Segoe UI, Helvetica, Arial, sans-serif','fontSize':'14px','lineColor':'#cbd5e1','edgeLabelBackground':'#ffffff'}}}%%
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Segoe UI, Helvetica, Arial, sans-serif','fontSize':'14px','lineColor':'#cbd5e1','edgeLabelBackground':'#ffffff'}}}%%
 flowchart TD
-    A["<b>Raw .txt</b><br/><small style='color:#64748b'>6-axis IMU · 27 swings</small>"]:::io
+    A["<b>讀入原始揮拍訊號</b><br/><small style='color:#64748b'>6 軸 IMU 感測器 · 每筆 27 次揮拍</small>"]:::io
 
-    subgraph FE ["① 特徵工程　Feature Engineering"]
+    subgraph FE ["① 抽取特徵　把揮拍波形變成可比較的數字"]
         direction TB
-        B["<b>TSFEL</b> per-segment<br/><small style='color:#64748b'>8 signals · 1,240 dims</small>"]:::card
-        C["<b>Aggregate</b> · 7 statistics<br/><small style='color:#64748b'>8,680 dims</small>"]:::card
+        B["<b>把每次揮拍的波形算成特徵</b><br/><small style='color:#64748b'>TSFEL 時序特徵 · 每段 1,240 維</small>"]:::card
+        C["<b>濃縮成一位選手的整體特徵</b><br/><small style='color:#64748b'>27 次揮拍取 7 種統計量 · 8,680 維</small>"]:::card
         B --> C
     end
 
-    subgraph SEL ["② 特徵篩選　Feature Selection"]
+    subgraph SEL ["② 篩選特徵　只留下最有用的"]
         direction TB
-        D["<b>VarianceThreshold</b> 0.01<br/><small style='color:#64748b'>8,680 → 7,534 dims</small>"]:::card
-        K1["<b>SelectKBest</b> · k by Optuna<br/><small style='color:#64748b'>gender · play years · level</small>"]:::card
-        K2["<b>all 7,534 dims</b><br/><small style='color:#64748b'>hold racket handed</small>"]:::card
+        D["<b>丟掉幾乎不變、沒鑑別力的特徵</b><br/><small style='color:#64748b'>VarianceThreshold · 8,680 → 7,534 維</small>"]:::card
+        K1["<b>為每個題目挑最相關的特徵</b><br/><small style='color:#64748b'>SelectKBest · gender / play years / level</small>"]:::card
+        K2["<b>不再篩選，沿用全部特徵</b><br/><small style='color:#64748b'>hold racket handed</small>"]:::card
         D --> K1
         D --> K2
     end
 
-    subgraph MODEL ["③ 建模與調參　Modeling &amp; Tuning"]
+    subgraph MODEL ["③ 訓練模型　學習並自動調參"]
         direction TB
-        PRE["<b>KNNImputer</b> → <b>MinMaxScaler</b> → <b>input noise</b>"]:::card
-        F["<b>CatBoost</b> GPU · 4 targets<br/><small style='color:#64748b'>Optuna TPE · 75 trials · 5-fold GroupKFold</small>"]:::card
+        PRE["<b>清理與正規化資料</b><br/><small style='color:#64748b'>補缺值、統一尺度、加微量雜訊 · KNNImputer / MinMaxScaler</small>"]:::card
+        F["<b>訓練模型並自動調參</b><br/><small style='color:#64748b'>CatBoost GPU · Optuna 75 trials · 同一選手不跨訓練/驗證</small>"]:::card
         PRE --> F
     end
 
-    subgraph OUT ["④ 推論與提交　Inference"]
+    subgraph OUT ["④ 預測與輸出　產生競賽提交檔"]
         direction TB
-        G["<b>Test predict_proba</b><br/><small style='color:#64748b'>+ fallback (binary 0.5 · multi 1/n)</small>"]:::card
-        H["<b>submission.csv</b><br/><small style='color:#64748b'>probabilities</small>"]:::io
+        G["<b>預測新選手的四項屬性機率</b><br/><small style='color:#64748b'>性別 · 持拍手 · 球齡 · 程度（資料異常時給安全預設值）</small>"]:::card
+        H["<b>寫出提交檔</b><br/><small style='color:#64748b'>submission.csv</small>"]:::io
         G --> H
     end
 
@@ -72,7 +72,7 @@ flowchart TD
     K1 --> PRE
     K2 --> PRE
     F --> G
-    F -. "persist / load" .-> P[("<b>Artifacts</b><br/><small style='color:#64748b'>model · imputer · scaler · meta</small>")]:::art
+    F -. "存檔 / 載入" .-> P[("<b>保存訓練成果</b><br/><small style='color:#64748b'>模型 · imputer · scaler · 參數</small>")]:::art
 
     classDef card fill:#ffffff,stroke:#94a3b8,color:#1e293b,stroke-width:1px;
     classDef io fill:#ffffff,stroke:#1e293b,color:#0f172a,stroke-width:1.6px;

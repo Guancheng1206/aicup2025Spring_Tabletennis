@@ -71,8 +71,8 @@ flowchart LR
 | ------------------ | -------------------------------------------------------- |
 | Imputer            | `KNNImputer(n_neighbors=5)`                              |
 | Scaler             | `MinMaxScaler`                                           |
-| `gender` 不平衡     | Optuna 搜尋 `scale_pos_weight`,以樣本比 0.83 / 0.17 為中心 |
-| `play years / level` 不平衡 | fold-local balanced class weights,每折以 train labels 計算 |
+| `gender` 不平衡     | Optuna 搜尋 `scale_pos_weight`,以多數/少數樣本比(0.83 / 0.17 ≈ 4.96)為中心 |
+| `play years / level` 不平衡 | 由 Optuna 決定是否啟用 fold-local balanced class weights(啟用時每折以 train labels 計算) |
 
 ### 訓練策略
 

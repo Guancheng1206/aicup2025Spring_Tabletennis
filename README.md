@@ -1,250 +1,274 @@
-# AI CUP 2025春季賽－桌球智慧球拍資料的精準分析競賽
+# AI CUP 2025 Spring — Smart Racket Table Tennis Classification
 
-**競賽頁面**:[T-Brain Competition #39](https://tbrain.trendmicro.com.tw/Competitions/Details/39)
-最終成績的評量項目包括兩部分：(1).該隊伍於Private Leaderboard之排名，佔80%比重；及(2).報告，佔20%。
-評量標準包括三部分：(1). 報告完整性(8%)、(2). 報告正確性(8%)、與(3).程式原創性(4%)。由教育部人工智慧競賽與標註資料蒐集計畫辦公室之專家委員組成之評審團隊，進行評分。
+[![AI CUP 2025 Spring](https://img.shields.io/badge/AI%20CUP-2025%20Spring-orange.svg)](https://tbrain.trendmicro.com.tw/Competitions/Details/39)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](aicup_submission.ipynb)
+[![Private LB AUC](https://img.shields.io/badge/Private%20LB%20AUC-0.806-success.svg)](#final-result)
 
-<br>
+Competition submission for the AI CUP 2025 Spring smart-racket challenge. The task is to predict four
+table-tennis player attributes from six-axis IMU swing recordings:
 
----
+- `gender`
+- `hold racket handed`
+- `play years`
+- `level`
 
-## 任務
+This repository is the **original competition entry**: a single, self-contained notebook
+([aicup_submission.ipynb](aicup_submission.ipynb)) that produced the leaderboard result below. A
+post-competition redesign — with leakage-safe nested evaluation, paired bootstrap confidence intervals,
+and a reproducible, cost-gated experiment framework — lives in a separate repository:
 
-從六軸 IMU 揮拍訊號預測桌球選手的四項屬性。每筆 recording 為一個 `.txt` 檔,內含 27 次揮拍的連續六軸時序資料(三軸加速度 `Ax/Ay/Az`、三軸角速度 `Gx/Gy/Gz`)。
+> **Redesign:** [smart-racket-imu-classification](https://github.com/Guancheng1206/smart-racket-imu-classification)
 
-| 目標                 | 類別數 | 評估指標             |
-| -------------------- | -----: | -------------------- |
-| `gender`             |      2 | ROC AUC              |
-| `hold racket handed` |      2 | ROC AUC              |
-| `play years`         |      3 | Micro-OvR ROC AUC    |
-| `level`              |      4 | Micro-OvR ROC AUC    |
+If you want the stricter, framework-style treatment of the same problem, read that repo. This one is the
+honest record of what was actually submitted.
 
-最終分數為四項指標之**算術平均**。
+## Final result
 
-| 資料集     | Recordings | Players |
-| ---------- | ---------: | ------: |
-| Training   |      1,955 |      42 |
-| Test       |      1,430 |       — |
+**Mean 5-fold GroupKFold CV AUC 0.8296; Private Leaderboard ROC AUC 0.806.**
 
-<br>
+| Target | Metric | Optuna best CV AUC |
+| --- | --- | ---: |
+| `gender` | ROC AUC | 0.7963 |
+| `hold racket handed` | ROC AUC | 0.9996 |
+| `play years` | micro-OvR ROC AUC | 0.6629 |
+| `level` | micro-OvR ROC AUC | 0.8595 |
+| **mean** | — | **0.8296** |
 
----
+The headline metric is the arithmetic mean of the four per-target AUCs, matching the competition's
+scoring. The CV column reports each target's best Optuna trial value on the internal 5-fold
+`GroupKFold`.
 
-## Pipeline
+> **Read these numbers honestly.** The CV scores are the *best Optuna trial* values, i.e. hyperparameter
+> selection and evaluation share the same folds, so the CV column is optimistic relative to a truly
+> outer-fold-honest estimate. The TSFEL sampling-rate constant here is `fs = 50 Hz`, which the redesign
+> later found to be wrong for this hardware (~85 Hz). Both issues are exactly what the
+> [redesign repo](https://github.com/Guancheng1206/smart-racket-imu-classification) was built to fix; the
+> Private Leaderboard number (0.806) is the only fully out-of-sample figure here.
+
+## How it works
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'fontFamily':'Segoe UI, Helvetica, Arial, sans-serif','fontSize':'14px','lineColor':'#cbd5e1','edgeLabelBackground':'#ffffff'}}}%%
 flowchart TD
-    A["<b>讀入原始揮拍訊號</b><br/><small style='color:#64748b'>6 軸 IMU 感測器 · 每筆 27 次揮拍</small>"]:::io
+    RAW["<b>Raw IMU recording</b><br/><small style='color:#64748b'>one .txt · 27 swings · 6 axes</small>"]:::io
 
-    subgraph FE ["① 抽取特徵　把揮拍波形變成可比較的數字"]
+    subgraph FEAT ["① Feature pipeline (cached)"]
         direction TB
-        B["<b>把每次揮拍的波形算成特徵</b><br/><small style='color:#64748b'>TSFEL 時序特徵 · 每段 1,240 維</small>"]:::card
-        C["<b>濃縮成一位選手的整體特徵</b><br/><small style='color:#64748b'>27 次揮拍取 7 種統計量 · 8,680 維</small>"]:::card
-        B --> C
+        SEG["<b>Split each recording into 27 swings</b><br/><small style='color:#64748b'>equal-width segments (not cut_point)</small>"]:::card
+        TS["<b>Per-swing TSFEL features</b><br/><small style='color:#64748b'>6 axes + 2 L2 magnitudes · 1,240 dims</small>"]:::card
+        AGG["<b>Aggregate to recording level</b><br/><small style='color:#64748b'>7 statistics · 8,680 dims</small>"]:::card
+        SEG --> TS --> AGG
     end
 
-    subgraph SEL ["② 篩選特徵　只留下最有用的"]
+    subgraph SELF ["② Feature selection"]
         direction TB
-        D["<b>丟掉幾乎不變、沒鑑別力的特徵</b><br/><small style='color:#64748b'>VarianceThreshold · 8,680 → 7,534 維</small>"]:::card
-        K1["<b>為每個題目挑最相關的特徵</b><br/><small style='color:#64748b'>SelectKBest · gender / play years / level</small>"]:::card
-        K2["<b>不再篩選，沿用全部特徵</b><br/><small style='color:#64748b'>hold racket handed</small>"]:::card
-        D --> K1
-        D --> K2
+        VT["<b>Drop near-constant features</b><br/><small style='color:#64748b'>VarianceThreshold 0.01 · 8,680 -> 7,534</small>"]:::card
+        KB["<b>Per-target SelectKBest (k via Optuna)</b><br/><small style='color:#64748b'>gender · play years · level</small>"]:::card
+        KEEP["<b>Keep all 7,534 features</b><br/><small style='color:#64748b'>hold racket handed</small>"]:::card
+        VT --> KB
+        VT --> KEEP
     end
 
-    subgraph MODEL ["③ 訓練模型　學習並自動調參"]
+    subgraph TRAIN ["③ Per-target tuning & training (x4)"]
         direction TB
-        PRE["<b>清理與正規化資料</b><br/><small style='color:#64748b'>補缺值、統一尺度、加微量雜訊 · KNNImputer / MinMaxScaler</small>"]:::card
-        F["<b>訓練模型並自動調參</b><br/><small style='color:#64748b'>CatBoost GPU · Optuna 75 trials · 同一選手不跨訓練/驗證</small>"]:::card
-        PRE --> F
+        PRE["<b>Fold-local preprocessing</b><br/><small style='color:#64748b'>KNNImputer -> MinMaxScaler -> input noise (train only)</small>"]:::card
+        OPT["<b>Optuna TPE hyperparameter search</b><br/><small style='color:#64748b'>75 trials · 5-fold GroupKFold by player_id · MedianPruner</small>"]:::card
+        FIT["<b>Fit final CatBoost (GPU)</b><br/><small style='color:#64748b'>class-imbalance handling per target</small>"]:::card
+        PRE --> OPT --> FIT
     end
 
-    subgraph OUT ["④ 預測與輸出　產生競賽提交檔"]
-        direction TB
-        G["<b>預測新選手的四項屬性機率</b><br/><small style='color:#64748b'>性別 · 持拍手 · 球齡 · 程度（資料異常時給安全預設值）</small>"]:::card
-        H["<b>寫出提交檔</b><br/><small style='color:#64748b'>submission.csv</small>"]:::io
-        G --> H
-    end
-
-    A --> B
-    C --> D
-    K1 --> PRE
-    K2 --> PRE
-    F --> G
-    F -. "存檔 / 載入" .-> P[("<b>保存訓練成果</b><br/><small style='color:#64748b'>模型 · imputer · scaler · 參數</small>")]:::art
+    RAW --> SEG
+    AGG --> VT
+    KB --> PRE
+    KEEP --> PRE
+    FIT -. "persist / load" .-> ART[("<b>Per-target artifacts</b><br/><small style='color:#64748b'>model · imputer · scaler · params</small>")]:::art
+    FIT --> INF["<b>Test inference</b><br/><small style='color:#64748b'>predict_proba + safe fallback</small>"]:::card
+    INF --> SUB["<b>Submission probabilities</b><br/><small style='color:#64748b'>submission_catboost_tsfel_gpu_v6.csv</small>"]:::io
 
     classDef card fill:#ffffff,stroke:#94a3b8,color:#1e293b,stroke-width:1px;
     classDef io fill:#ffffff,stroke:#1e293b,color:#0f172a,stroke-width:1.6px;
     classDef art fill:#ffffff,stroke:#cbd5e1,color:#334155,stroke-width:1px,stroke-dasharray:4 3;
-    style FE fill:#ffffff,stroke:#e2e8f0,color:#0f172a
-    style SEL fill:#ffffff,stroke:#e2e8f0,color:#0f172a
-    style MODEL fill:#ffffff,stroke:#e2e8f0,color:#0f172a
-    style OUT fill:#ffffff,stroke:#e2e8f0,color:#0f172a
+    style FEAT fill:#ffffff,stroke:#e2e8f0,color:#0f172a
+    style SELF fill:#ffffff,stroke:#e2e8f0,color:#0f172a
+    style TRAIN fill:#ffffff,stroke:#e2e8f0,color:#0f172a
 ```
 
-> 圖中 ② 已標明分叉:`SelectKBest` 僅套用於 `gender` / `play years` / `level`;`hold racket handed` 直接使用全部 7,534 維特徵。虛線回路表示 `USE_SAVED_MODELS=True` 時載入既有 artifact、跳過訓練直接推論。
+Intermediate TSFEL features and the four per-target artifacts are cached to disk. With
+`USE_SAVED_MODELS = True` the notebook loads existing artifacts and skips training, so a re-run only
+regenerates the test predictions. `SelectKBest` is applied per target to `gender` / `play years` /
+`level`; `hold racket handed` keeps all 7,534 features.
 
-<br>
+## Dataset
 
----
+Each recording (`unique_id`) is a raw `.txt` file containing six-axis IMU time series:
 
-## 方法
+- Accelerometer: `Ax`, `Ay`, `Az`
+- Gyroscope: `Gx`, `Gy`, `Gz`
 
-### 特徵抽取
+Each recording contains 27 swings. Datasets are **not** committed.
 
-每筆 `.txt` 平均切成 27 個 swing segment。每個 segment 對 6 軸原始訊號 + 2 個 L2 magnitude(加速度合成、角速度合成)以 **TSFEL** 抽取時序特徵(時域 + 頻域 + 統計域),per-segment 1,240 維。27 個 segment 經 7 種統計量聚合為 recording-level 特徵向量:
+```text
+39_Training_Dataset/
+  train_info.csv
+  train_data/{unique_id}.txt
 
-```
-8,680 維 = 1,240 (TSFEL per segment) × 7 (mean / std / median / min / max / skew / kurtosis)
-```
-
-### 特徵篩選
-
-- `VarianceThreshold(0.01)` 全域移除近常數欄位:**8,680 → 7,534 維**
-- `SelectKBest(f_classif)` 對 `gender` / `play years` / `level` 三個 target 再次篩選
-- `k` 由 Optuna 搜尋,下界 20、上界為當前可用特徵數
-- 每個 target 各自得到獨立的特徵子集,並隨模型一同 persist
-
-### 模型
-
-四個 target 各訓練獨立的 `CatBoost`(`task_type='GPU'`)分類器。
-
-| 元件               | 設定                                                     |
-| ------------------ | -------------------------------------------------------- |
-| Imputer            | `KNNImputer(n_neighbors=5)`                              |
-| Scaler             | `MinMaxScaler`                                           |
-| `gender` 不平衡     | Optuna 搜尋 `scale_pos_weight`,以多數/少數樣本比(0.83 / 0.17 ≈ 4.96)為中心 |
-| `play years / level` 不平衡 | 由 Optuna 決定是否啟用 fold-local balanced class weights(啟用時每折以 train labels 計算) |
-
-### 訓練策略
-
-- **Early stopping**:每個 fold 訓練時以 validation fold 監控,`early_stopping_rounds`(40–100,step=10)本身納入 Optuna 搜尋空間
-- **輸入噪聲正則化**:`add_input_noise`(true / false)與 `noise_level`(1e-4 – 2e-2,log scale)皆由 Optuna 決定
-- 噪聲**僅施加於訓練資料**,不污染 validation
-
-### 評估與調參
-
-以 **`player_id` 分組的 5-fold `GroupKFold`**,確保同一選手不會同時出現在 train 與 validation。
-
-Optuna TPE 對每個 target 跑 **75 trials**(總計 300 trials),搜尋空間:
-
-| 類別           | 超參數                                                                                                                                                                       |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CatBoost       | `iterations` (500–2,500)、`learning_rate` (5e-4 – 5e-2, log)、`depth` (3–6)、`l2_leaf_reg`、`border_count`、`random_strength`、`bagging_temperature`、`early_stopping_rounds` |
-| 預處理 / 正則化 | `SelectKBest` 的 `k`、輸入噪聲開關與強度                                                                                                                                       |
-| 不平衡處理      | `gender` 的 `scale_pos_weight`、`play years / level` 是否啟用 balanced class weights                                                                                          |
-
-**計算成本控制**:
-- `MedianPruner(n_startup_trials=7, n_warmup_steps=1)` 提前終止明顯低於中位數的試驗
-- 每個 study 設定 2.5 小時 wall-clock timeout 上限
-
-### 模型 Persistence
-
-每個 target 訓練後 persist **四項 artifact**:
-
-```
-trained_models_catboost_v6/
-├── catboost_model_{target}.cbm        # CatBoost 模型
-├── imputer_{target}.joblib            # KNNImputer
-├── scaler_{target}.joblib             # MinMaxScaler
-└── best_params_meta_{target}.json     # Optuna 最佳參數 + 選出的特徵名
+39_Test_Dataset/
+  test_info.csv
+  sample_submission.csv
+  test_data/{unique_id}.txt
 ```
 
-`USE_SAVED_MODELS = True` 時自動載入,跳過訓練,支援只更新測試集預測的快速迭代。
+Training metadata columns:
 
-### 推論 Fallback
-
-測試階段對缺失特徵檔、空 segment、或聚合失敗的 recording 採用合理預設機率,避免單筆故障導致整份 submission 失敗:
-
-- Binary target:`0.5`
-- Multi-class target:`1 / n_classes`
-
-<br>
-
----
-
-## 結果
-
-### Optuna Best CV Scores
-
-每個 target 在內部 5-fold CV 上的最佳分數:
-
-| 目標                 |   Best CV |
-| -------------------- | --------: |
-| `gender`             |    0.7963 |
-| `hold racket handed` |    0.9996 |
-| `play years`         |    0.6629 |
-| `level`              |    0.8595 |
-| **mean**             | **0.8296** |
-
-### Private Leaderboard
-
-> **ROC AUC: 0.806**
-
-<br>
-
----
-
-## 專案結構
-
+```text
+unique_id, player_id, mode, gender, hold racket handed, play years, level, cut_point
 ```
+
+`player_id` is the grouping key used for leakage-safe cross-validation. This notebook segments each
+recording into 27 equal-width windows with `np.linspace` (it does **not** use the `mode` covariate or the
+`cut_point` split indices — both are available for future work).
+
+| Dataset | Recordings | Players |
+| --- | ---: | ---: |
+| Training | 1,955 | 42 |
+| Test | 1,430 | — |
+
+## Evaluation protocol
+
+- Single 5-fold `GroupKFold`, grouped by `player_id`, so a player never appears in both train and
+  validation within a fold.
+- Per-target hyperparameter search with Optuna TPE: 75 trials each (300 total across four targets),
+  pruned by `MedianPruner` and capped at a 2.5-hour wall-clock timeout per study.
+- Competition AUC per target: ROC AUC for the binary targets, micro-OvR ROC AUC for the multiclass
+  targets.
+- Mean AUC across the four targets as the headline metric.
+
+This protocol is the competition-era validation. It controls player leakage in the cross-validation
+folds, but — unlike the redesign — hyperparameter selection and reporting share the same folds, and there
+is a single split with no nested loop and no uncertainty estimate. Treat the CV numbers as a development
+signal, not as an unbiased generalization estimate.
+
+## Model overview
+
+A single modeling approach, trained independently for each of the four targets.
+
+**Features.** Each recording is split into 27 swing segments. For every segment, TSFEL extracts temporal,
+spectral, and statistical features from the 6 raw axes plus 2 L2 magnitudes (acceleration and gyroscope),
+giving 1,240 per-segment dimensions. The 27 segments are aggregated with 7 statistics
+(`mean / std / median / min / max / skew / kurtosis`) into an 8,680-dim recording-level vector.
+
+**Selection.** `VarianceThreshold(0.01)` removes near-constant columns (8,680 -> 7,534). For `gender`,
+`play years`, and `level`, an additional `SelectKBest(f_classif)` is applied, with `k` tuned by Optuna
+(lower bound 20, upper bound the number of available features); each target keeps its own feature subset.
+`hold racket handed` uses all 7,534 features.
+
+**Learner.** A per-target `CatBoostClassifier` (`task_type='GPU'`) with fold-local `KNNImputer(5)` and
+`MinMaxScaler`, optional train-only Gaussian input noise, and early stopping. Class imbalance is handled
+with `scale_pos_weight` for `gender` and optional balanced class weights for `play years` / `level`
+(toggled by Optuna).
+
+Per-target Optuna best CV AUC:
+
+| Target | Metric | Optuna best CV AUC |
+| --- | --- | ---: |
+| `gender` | ROC AUC | 0.7963 |
+| `hold racket handed` | ROC AUC | 0.9996 |
+| `play years` | micro-OvR ROC AUC | 0.6629 |
+| `level` | micro-OvR ROC AUC | 0.8595 |
+| **mean** | — | **0.8296** |
+
+## Engineering highlights
+
+- Per-target Optuna TPE tuning (75 trials each) with `MedianPruner` and a 2.5-hour timeout per study.
+- Player-grouped 5-fold `GroupKFold` to avoid player leakage in cross-validation.
+- Fold-local `KNNImputer` + `MinMaxScaler` and train-only input-noise regularization.
+- Per-target feature selection (`VarianceThreshold` + Optuna-tuned `SelectKBest`).
+- Class-imbalance handling: `scale_pos_weight` (`gender`) and optional balanced class weights
+  (`play years` / `level`).
+- Cached TSFEL features and persisted per-target artifacts (model / imputer / scaler / params), with
+  `USE_SAVED_MODELS` for fast re-runs.
+- Defensive inference fallbacks (binary `0.5`, multiclass `1 / n_classes`) so one bad recording cannot
+  break the whole submission.
+- GPU training via CatBoost `task_type='GPU'`.
+
+## Project structure
+
+```text
 .
-├── 39_Training_Dataset/                         # 官方訓練資料(未納入 repo)
-├── 39_Test_Dataset/                             # 官方測試資料(未納入 repo)
-├── aicup_submission.ipynb                       # 主執行 notebook
-│
-├── tabular_data_train_tsfel_catboost_gpu_v6/    # TSFEL segment 特徵 cache(自動)
-├── tabular_data_test_tsfel_catboost_gpu_v6/     # TSFEL segment 特徵 cache(自動)
-│
-├── trained_models_catboost_v6/                  # 訓練後 artifacts(自動)
-│   ├── catboost_model_{target}.cbm
-│   ├── imputer_{target}.joblib
-│   ├── scaler_{target}.joblib
-│   └── best_params_meta_{target}.json
-│
-└── submission_catboost_tsfel_gpu_v6.csv         # 最終提交檔(自動)
+aicup_submission.ipynb                      # the entire pipeline (one notebook)
+README.md
+.gitignore
+
+# generated at runtime, gitignored (not committed):
+39_Training_Dataset/                        # official training data
+39_Test_Dataset/                            # official test data
+tabular_data_train_tsfel_catboost_gpu_v6/   # cached TSFEL segment features (train)
+tabular_data_test_tsfel_catboost_gpu_v6/    # cached TSFEL segment features (test)
+trained_models_catboost_v6/                 # per-target artifacts (.cbm / .joblib / .json)
+submission_catboost_tsfel_gpu_v6.csv        # final submission
 ```
 
-<br>
-
----
-
-## 環境與執行
-
-<details>
-<summary><b>環境需求</b></summary>
-
-- Python 3.8+
-- NVIDIA GPU + CUDA(CatBoost `task_type='GPU'`)
+## Setup
 
 ```bash
 pip install numpy pandas scikit-learn catboost optuna tsfel joblib jupyterlab
 ```
 
-</details>
+Requirements:
 
-<details>
-<summary><b>執行步驟</b></summary>
+- Python 3.8+
+- An NVIDIA GPU + CUDA (CatBoost `task_type='GPU'`).
 
-1. 將 `39_Training_Dataset/` 與 `39_Test_Dataset/` 放在 repo 根目錄
-2. 在 Jupyter 中執行 `aicup_submission.ipynb` 所有 cells
+## Running
 
-中間特徵與模型 artifacts 會自動 cache,重複執行時跳過耗時步驟。
+1. Place `39_Training_Dataset/` and `39_Test_Dataset/` at the repository root.
+2. Run all cells of [aicup_submission.ipynb](aicup_submission.ipynb).
 
-**重新訓練**:設定 notebook 開頭 `USE_SAVED_MODELS = False`,或直接刪除 `trained_models_catboost_v6/` 與兩個 `tabular_data_*/` 資料夾。
+Intermediate features and model artifacts are cached, so subsequent runs skip the expensive steps. To
+**retrain from scratch**, set `USE_SAVED_MODELS = False` near the top of the notebook, or delete
+`trained_models_catboost_v6/` and the two `tabular_data_*/` cache folders.
 
-</details>
+Main tunable constants:
 
-<details>
-<summary><b>主要可調參數</b></summary>
+| Constant | Default | Meaning |
+| --- | --- | --- |
+| `NUM_TOTAL_SEGMENTS_PER_FILE` | 27 | Swing segments per recording |
+| `N_SPLITS_GROUPKFOLD` | 5 | GroupKFold folds |
+| `OPTUNA_N_TRIALS` | 75 | Optuna trials per target |
+| `TSFEL_SAMPLING_FREQ` | 50 | TSFEL sampling-rate constant (see caveat above) |
+| `USE_SAVED_MODELS` | `True` | Load saved artifacts and skip training |
 
-| 參數                          | 預設   | 說明                              |
-| ----------------------------- | ------ | --------------------------------- |
-| `NUM_TOTAL_SEGMENTS_PER_FILE` | 27     | 每筆訊號切分的 segment 數         |
-| `N_SPLITS_GROUPKFOLD`         | 5      | GroupKFold 折數                   |
-| `OPTUNA_N_TRIALS`             | 75     | 每個 target 的 Optuna 試驗次數    |
-| `TSFEL_SAMPLING_FREQ`         | 50     | TSFEL 的取樣率參數                |
-| `USE_SAVED_MODELS`            | `True` | 是否載入已存模型跳過訓練          |
+## Honest interpretation
 
-</details>
+What carried the result was not a single clever trick but a few solid choices:
+
+1. Player-grouped cross-validation, so the CV signal is not inflated by per-player leakage.
+2. Fold-local preprocessing (impute / scale) fitted only on training folds.
+3. A rich TSFEL representation aggregated to the recording level.
+4. Per-target feature selection and per-target Optuna tuning rather than one shared configuration.
+
+The honest limitations — and the reason the redesign exists:
+
+- The reported CV is the best Optuna trial value, so model selection and evaluation share folds; it is
+  optimistic, not outer-fold-honest.
+- A single split, with no nested CV and no uncertainty estimate (no bootstrap confidence intervals), over
+  only 42 players.
+- `TSFEL_SAMPLING_FREQ = 50` is incorrect for this hardware (~85 Hz); it is a shared constant, so it
+  shifts the numbers only slightly, but it is still a known defect.
+- Everything lives in one notebook, which makes testing and reproduction harder.
+
+All four are addressed in the
+[redesign repository](https://github.com/Guancheng1206/smart-racket-imu-classification).
+
+## Data & license
+
+The AI CUP competition datasets are **not** included or redistributed here and remain subject to their
+original competition terms. No separate code-license file is provided in this repository.
+
+## References
+
+- CatBoost: <https://catboost.ai>
+- TSFEL: <https://tsfel.readthedocs.io>
+- Optuna: <https://optuna.org>
+- scikit-learn: <https://scikit-learn.org>
+
+Generative AI assistance was used while preparing this documentation.

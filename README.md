@@ -33,14 +33,60 @@
 ## Pipeline
 
 ```mermaid
-flowchart LR
-    A[Raw .txt<br/>6-axis IMU<br/>27 swings] --> B[TSFEL<br/>per-segment<br/>1,240 dims]
-    B --> C[Aggregate<br/>7 statistics<br/>8,680 dims]
-    C --> D[Variance<br/>Threshold<br/>7,534 dims]
-    D --> E[SelectKBest<br/>k tuned by<br/>Optuna]
-    E --> F[CatBoost GPU<br/>per target<br/>× 4]
-    F --> G[Submission<br/>probabilities]
+flowchart TD
+    A["📄 Raw .txt<br/>6-axis IMU · 27 swings / recording"]
+
+    subgraph FE["① 特徵工程 · Feature Engineering"]
+        direction TB
+        B["TSFEL per-segment<br/>6 axes + 2 L2 magnitude = 8 signals<br/>1,240 dims × 27 segments"]
+        C["Aggregate · 7 statistics<br/>mean / std / median / min / max / skew / kurt<br/>→ 8,680 dims"]
+        B --> C
+    end
+
+    subgraph SEL["② 特徵篩選 · Feature Selection"]
+        direction TB
+        D["VarianceThreshold(0.01)<br/>8,680 → 7,534 dims"]
+        K1["SelectKBest(f_classif)<br/>k tuned by Optuna<br/>gender · play years · level"]
+        K2["use all 7,534 dims<br/>hold racket handed"]
+        D --> K1
+        D --> K2
+    end
+
+    subgraph MODEL["③ 建模與調參 · Modeling & Tuning"]
+        direction TB
+        PRE["KNNImputer(5) → MinMaxScaler<br/>→ input noise (train only)"]
+        F["CatBoost (GPU) · per target × 4<br/>Optuna TPE · 75 trials · MedianPruner<br/>5-fold GroupKFold by player_id"]
+        PRE --> F
+    end
+
+    subgraph OUT["④ 推論與提交 · Inference"]
+        direction TB
+        G["Test predict_proba<br/>Fallback: binary 0.5 · multi 1/n_classes"]
+        H["submission_*.csv · probabilities"]
+        G --> H
+    end
+
+    A --> B
+    C --> D
+    K1 --> PRE
+    K2 --> PRE
+    F --> G
+    F -. persist .-> P[("trained_models_*/<br/>.cbm · imputer · scaler · meta.json")]
+    P -. "USE_SAVED_MODELS=True · 跳過訓練" .-> G
+
+    M["🎯 4 targets · 評估指標<br/>gender · hold racket handed → ROC AUC<br/>play years · level → micro-OvR ROC AUC"]
+    F -.-> M
+
+    style FE fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    style SEL fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+    style MODEL fill:#fff3e0,stroke:#ef6c00,color:#e65100
+    style OUT fill:#f3e5f5,stroke:#7b1fa2,color:#4a148c
+    style A fill:#eceff1,stroke:#546e7a
+    style P fill:#fffde7,stroke:#f9a825
+    style M fill:#fafafa,stroke:#9e9e9e,stroke-dasharray:3 3
 ```
+
+> 圖中 ② 已標明分叉:`SelectKBest` 僅套用於 `gender` / `play years` / `level`;`hold racket handed` 直接使用全部 7,534 維特徵。虛線回路表示 `USE_SAVED_MODELS=True` 時載入既有 artifact、跳過訓練直接推論。
 
 <br>
 

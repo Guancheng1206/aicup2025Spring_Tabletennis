@@ -247,6 +247,6 @@ original competition terms. No separate code-license file is provided in this re
 
 ## AI Assistance Disclosure
 
-AI tools were used to assist with English translation, language polishing, and README formatting. The
+AI tools were used to assist with English translation, language polishing, and formatting. The
 model design and core technical decisions were developed, evaluated, and validated by the author. All
 AI-assisted content was reviewed and revised before publication.

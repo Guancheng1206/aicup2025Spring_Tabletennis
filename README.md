@@ -2,7 +2,6 @@
 
 [![AI CUP 2025 Spring](https://img.shields.io/badge/AI%20CUP-2025%20Spring-orange.svg)](https://tbrain.trendmicro.com.tw/Competitions/Details/39)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](requirements.txt)
-[![Private LB AUC](https://img.shields.io/badge/Private%20LB%20AUC-0.806-success.svg)](#competition-result)
 
 Solution for the AI CUP 2025 Spring smart-racket challenge. The task is to predict four table-tennis
 player attributes from six-axis IMU swing recordings:
@@ -15,13 +14,6 @@ player attributes from six-axis IMU swing recordings:
 The whole pipeline lives in a single, self-contained notebook
 ([aicup_submission.ipynb](aicup_submission.ipynb)): feature extraction, per-target hyperparameter tuning,
 training, and test-set prediction.
-
-## Competition result
-
-**Private Leaderboard ROC AUC 0.806**, the arithmetic mean of the four per-target AUCs, matching the
-competition's scoring.
-
-The leaderboard score was obtained with an earlier version of this notebook (commit `8170835`).
 
 ## How it works
 
@@ -213,7 +205,7 @@ Main tunable constants:
 
 ## Honest interpretation
 
-What carried the result was not a single clever trick but a few solid choices:
+The pipeline rests on a few solid choices rather than a single clever trick:
 
 1. Player-grouped cross-validation, so no player appears on both sides of a split.
 2. Fold-local selection, imputation and scaling fitted only on training folds.

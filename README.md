@@ -15,17 +15,43 @@ six-axis motion sensor inside a smart racket. The whole pipeline lives in one no
 - **Rich features.** TSFEL temporal, spectral and statistical features, summarized over each test session.
 - **Per-target tuning.** Four CatBoost models, each with its own features and Optuna-tuned settings.
 
+![Pipeline overview](docs/figures/pipeline.png)
+
 ## How it works
 
-1. **Segment.** Split each recording into 27 equal-width windows, one per expected swing.
-2. **Extract.** Compute 124 TSFEL features for each of 8 signals (6 axes + acceleration and gyroscope
-   magnitudes): 992 per window.
-3. **Aggregate.** Summarize the 27 windows with 7 statistics (mean, std, median, min, max, skew,
-   kurtosis): 6,944 features per recording.
-4. **Select.** Drop near-constant columns, then pick the top-k features per target inside each fold.
-5. **Train.** Tune a GPU CatBoost model per target with Optuna, then refit it on all training data.
+The figures below follow one training recording (a mode 1 session of forehand air swings) through the
+feature pipeline. Features and trained models are cached, so re-runs skip the slow steps.
 
-Features and trained models are cached, so re-runs skip the slow steps.
+**1. Raw signals.** Six 16-bit channels at 85 Hz. During fast swings the gyroscope often saturates at
+±32,768, which shows up as flat tops.
+
+![Step 1: raw sensor data](docs/figures/step1_raw.png)
+
+**2. Two added signals.** The acceleration and angular-velocity magnitudes do not depend on how the racket
+is turned, so 8 signals go into feature extraction.
+
+![Step 2: magnitudes](docs/figures/step2_magnitude.png)
+
+**3. Windows.** Each recording is cut into 27 windows at the `cut_point` indices, which in this data are
+always 28 equally spaced points.
+
+![Step 3: windows](docs/figures/step3_windows.png)
+
+**4. Features per window.** TSFEL computes 124 temporal, spectral and statistical features for each of the
+8 signals: 992 per window.
+
+![Step 4: per-window features](docs/figures/step4_window_features.png)
+
+**5. Aggregation.** Each feature's 27 window values are summarized with 7 statistics, giving 6,944 features
+per recording. Selection and the per-target CatBoost models work on this table.
+
+![Step 5: aggregation](docs/figures/step5_aggregation.png)
+
+**6. A check on the windows.** Swinging starts and stops a little inside the recording, so the first and
+last windows hold little or no swing and the rest drift against real swings. This motivates detecting
+swings directly (see [Limitations and next steps](#limitations-and-next-steps)).
+
+![Step 6: windows versus swings](docs/figures/step6_swing_check.png)
 
 ## Quick start
 
@@ -54,8 +80,13 @@ To retrain from scratch, set `USE_SAVED_MODELS = False` or delete the `*_v7/` ca
 ## Dataset
 
 Each file is one test session by one player: acceleration and angular velocity on three axes, sampled at
-85 Hz. A session normally holds 27 swings and may include movement before and after the test; the
-organizer's `cut_point` column gives approximate swing boundaries.
+85 Hz. A session normally holds 27 swings and may include movement before and after the test. The
+organizer describes `cut_point` as approximate swing boundaries; in all 3,385 released files it equals 28
+equally spaced indices over the whole recording.
+
+![Sensor axes](docs/figures/sensor_axes.png)
+
+![Training recordings per mode](docs/figures/modes.png)
 
 | Mode | Test | What the player does |
 | --- | --- | --- |
@@ -153,7 +184,8 @@ submission_catboost_tsfel_gpu_v7.csv               submission file
 
 | Limitation | Next step |
 | --- | --- |
-| Equal-width windows ignore real swing boundaries and pre/post-test movement | Segment swings with `cut_point` |
+| The 27 windows are equally spaced (as is `cut_point`), so they include the quiet start and wind-down and drift against real swings | Detect swings in the signal, e.g. from peaks of the smoothed gyroscope magnitude |
+| The gyroscope saturates at ±32,768 during fast swings, clipping peak rotation speed | Add saturation-aware features, such as the share of clipped samples |
 | The swing mode is not used, although air swings, machine-fed hits and aerobic tests differ | Condition on `mode` |
 | One 5-fold split over 42 players, no uncertainty estimate | Nested, repeated player-grouped CV |
 | Swings are summarized before modeling | Model each swing and pool predictions per recording |

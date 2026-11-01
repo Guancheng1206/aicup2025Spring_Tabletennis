@@ -17,14 +17,6 @@ six-axis motion sensor inside a smart racket. The whole pipeline lives in one no
 
 ## How it works
 
-```mermaid
-flowchart LR
-    A["IMU recording<br/>85 Hz, 6 axes"] --> B["TSFEL features<br/>6,944 per recording"]
-    B --> C["Variance<br/>filter"]
-    C --> D["CatBoost + Optuna<br/>one model per target"]
-    D --> E["Class<br/>probabilities"]
-```
-
 1. **Segment.** Split each recording into 27 equal-width windows, one per expected swing.
 2. **Extract.** Compute 124 TSFEL features for each of 8 signals (6 axes + acceleration and gyroscope
    magnitudes): 992 per window.

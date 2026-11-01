@@ -14,3 +14,11 @@ catboost_info/
 
 # Output/Submission files
 *.csv
+
+# Local environment
+.venv/
+
+# v7 outputs
+tabular_data_train_tsfel_catboost_gpu_v7/
+tabular_data_test_tsfel_catboost_gpu_v7/
+trained_models_catboost_v7/

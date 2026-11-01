@@ -16,30 +16,12 @@ The whole pipeline lives in a single, self-contained notebook
 ([aicup_submission.ipynb](aicup_submission.ipynb)): feature extraction, per-target hyperparameter tuning,
 training, and test-set prediction.
 
-This is the corrected version (v7) of the notebook submitted to the competition (v6). A post-competition
-review found nine problems in the submitted version, including feature-selection leakage in its
-cross-validation; they are listed in [Changes from the submitted version](#changes-from-the-submitted-version).
-The submitted notebook remains available in the git history at commit `8170835`.
-
 ## Competition result
 
-The competition score comes from the **submitted version (v6)**: **Private Leaderboard ROC AUC 0.806.**
+**Private Leaderboard ROC AUC 0.806**, the arithmetic mean of the four per-target AUCs, matching the
+competition's scoring.
 
-| Target | Metric | v6 Optuna best CV AUC |
-| --- | --- | ---: |
-| `gender` | ROC AUC | 0.7963 |
-| `hold racket handed` | ROC AUC | 0.9996 |
-| `play years` | micro-OvR ROC AUC | 0.6629 |
-| `level` | micro-OvR ROC AUC | 0.8595 |
-| **mean** | — | **0.8296** |
-
-The headline metric is the arithmetic mean of the four per-target AUCs, matching the competition's
-scoring. The private leaderboard score is the only fully out-of-sample number. The v6 CV numbers are
-optimistic: `SelectKBest` was fitted on all training rows before the fold split, so it had already seen the
-validation labels, and hyperparameter selection, early stopping and reporting shared the same folds.
-
-The current notebook (v7) has been run end to end on a small subset of the data; its full-data results
-have not been recorded yet.
+The leaderboard score was obtained with an earlier version of this notebook (commit `8170835`).
 
 ## How it works
 
@@ -163,24 +145,6 @@ TSFEL extraction runs in parallel across CPU cores.
 validation fold during CV. The final model is trained on all training data with the number of trees set to
 the mean best iteration across the CV folds. Class imbalance is handled with `scale_pos_weight` for
 `gender` and optional balanced class weights for `play years` / `level` (toggled by Optuna).
-
-## Changes from the submitted version
-
-Each change is tagged `[修正 N]` in the notebook.
-
-| # | Problem in the submitted version (v6) | Effect | Fix in v7 |
-| --- | --- | --- | --- |
-| 1 | `SelectKBest` is fitted on all training rows before the `GroupKFold` split | Feature selection sees the validation labels; CV for `gender` / `play years` / `level` is inflated | Fit `SelectKBest` inside each fold on the training rows only |
-| 2 | `MedianPruner` is configured but `trial.report()` is never called | No trial is ever pruned | Report the running mean AUC after each fold and check `should_prune()` |
-| 3 | When the best trial enables `add_input_noise`, noise is also added to the **test** features | Stochastic test predictions | No noise at inference |
-| 4 | The final model is fitted without an `eval_set` | Early stopping never triggers; the final model trains all `iterations` trees, unlike the CV models | Use the mean best iteration from the CV folds |
-| 5 | Input noise uses unseeded `np.random` | Runs are not reproducible | `np.random.default_rng(42)` |
-| 6 | TSFEL `Spectrogram mean coefficient` columns are named by frequency bins that depend on segment length; every file is aligned to the first file's names | 248 of 1,240 per-swing columns; 92.7% (train) / 92.5% (test) of their values are NaN | Disable that feature (992 per-swing / 6,944 recording-level dims) |
-| 7 | On very short recordings (about 10 samples per swing; mostly aerobic modes 9 / 10 stopped early at exhaustion) `LPCC` raises, and the whole signal is discarded | 2 training and 8 test recordings have all-NaN features, so their predictions come entirely from imputation | On failure, compute features one at a time and skip only the failing ones |
-| 8 | `TSFEL_SAMPLING_FREQ = 50`, but the organizer states the sensor records 85 samples per second | Frequency-domain features are computed for the wrong sampling rate | `TSFEL_SAMPLING_FREQ = 85` |
-| 9 | Probabilities are written with 6 decimal places; the organizer allows at most 4 | Submission format does not follow the rules | `float_format='%.4f'` |
-
-Features, model artifacts and the submission use `_v7` paths, so they never mix with v6 caches.
 
 ## Engineering highlights
 

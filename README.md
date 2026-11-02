@@ -1,17 +1,18 @@
-# AI CUP 2025 Spring — Smart Racket Table Tennis Classification
+# 2025 AI CUP: Precise Analysis of Table Tennis Smart Racket Data
 
 [![AI CUP 2025 Spring](https://img.shields.io/badge/AI%20CUP-2025%20Spring-orange.svg)](https://tbrain.trendmicro.com.tw/Competitions/Details/39)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](requirements.txt)
 [![CatBoost GPU](https://img.shields.io/badge/model-CatBoost%20GPU-yellow.svg)](https://catboost.ai)
 
-Predicting a table-tennis player's gender, racket hand, years of play and competitive level from the
-six-axis motion sensor inside a smart racket. The whole pipeline lives in one notebook,
+Predicting a table-tennis player's gender, handedness, play years and level from the six-axis motion sensor
+inside a smart racket. The whole pipeline lives in one notebook,
 [`aicup_submission.ipynb`](aicup_submission.ipynb).
 
 **Highlights**
 
 - **Player-grouped validation.** Every attribute is constant per player, so folds are split by player.
-- **No leakage.** Feature selection, imputation and scaling are fitted on training folds only.
+- **Fold-local fitting.** `SelectKBest`, imputation and scaling are fitted on training folds only; only the
+  label-free variance filter sees all training rows.
 - **Rich features.** TSFEL temporal, spectral and statistical features, summarized over each test session.
 - **Per-target tuning.** Four CatBoost models, each with its own features and Optuna-tuned settings.
 
@@ -88,11 +89,11 @@ equally spaced indices over the whole recording.
 
 ![Training recordings per mode](docs/figures/modes.png)
 
-| Mode | Test | What the player does |
+| Mode | Type | What the player does |
 | --- | --- | --- |
-| 1–2 | Power | Forehand stroke or loop, swinging in the air, 27 times |
-| 3–8 | Power | 27 precise forehand hits from a serving machine at 50 balls/min, from different positions and directions |
-| 9–10 | Aerobic | Ball frequency rises until exhaustion, so a file may end before 27 swings |
+| 1–2 | Air swing | Forehand stroke or loop, swinging in the air, 27 times |
+| 3–8 | Serving machine | 27 precise forehand hits from a serving machine at 50 balls/min, from different positions and directions |
+| 9–10 | Aerobic test | Ball frequency rises until exhaustion, so a file may end before 27 swings |
 
 The training set has 1,955 recordings from 42 players; modes 9–10 make up 1,614 of them. The test set has
 1,430 recordings.
@@ -100,9 +101,20 @@ The training set has 1,955 recordings from 42 players; modes 9–10 make up 1,61
 | Target | Classes |
 | --- | --- |
 | Gender | 1, 2 |
-| Racket hand | 1, 2 |
-| Play years | 0 low · 1 medium · 2 high |
-| Level | 2 college Division A · 3 college Division B · 4 youth national team · 5 youth players |
+| Handedness (`hold racket handed`) | 1 right · 2 left |
+| Play years | 0 low · 1 mid · 2 high (bins set by the organizer) |
+| Level | 2 college Division I · 3 college Division II · 4 youth national team · 5 youth players |
+
+Every label is constant within a player, so the effective sample size is 42 players, not 1,955 recordings.
+Counted in players, the smallest classes are small: 3 youth national team, 5 college Division II,
+7 left-handed, and 8 each for gender class 2 and low play years.
+
+**Handedness shows in one channel.** Averaged over each player's recordings, the angular velocity about the
+racket's Y axis (Gy) is positive for all 35 right-handed players and negative for all 7 left-handed players.
+On single recordings this one number separates the two hands with an ROC AUC of 0.997, which is why
+handedness is the easy target and skips `SelectKBest`.
+
+![Mean Gy per player by handedness](docs/figures/handedness.png)
 
 ## Model overview
 
@@ -110,9 +122,10 @@ The training set has 1,955 recordings from 42 players; modes 9–10 make up 1,61
 because their column names depend on window length and would leave most values empty. When a feature
 fails on a very short window (an aerobic test stopped early), only that feature is skipped.
 
-**Selection.** A variance threshold (0.01) removes near-constant columns without using labels. For gender,
-play years and level, `SelectKBest` then keeps the top-k features, fitted on each fold's training rows
-with k tuned by Optuna. Racket hand uses all remaining features.
+**Selection.** `VarianceThreshold(0.01)` removes near-constant columns without using labels; it is fitted
+once on all training rows. For gender, play years and level, `SelectKBest` (ANOVA F) then keeps the top-k
+features, fitted on each fold's training rows with k tuned by Optuna. Handedness uses all remaining
+features.
 
 **Model.** One `CatBoostClassifier` per target on GPU, after KNN imputation and min-max scaling. Optuna
 tunes the tree settings, k, optional input noise and class weighting (75 trials per target). The final
@@ -142,13 +155,27 @@ from cross-validation.
 ## Evaluation protocol
 
 - **5-fold `GroupKFold` by player**, so no player appears in both training and validation.
-- **Fold-local fitting** for every step that learns from data: selection, imputation and scaling.
-- **Metric:** ROC AUC for gender and racket hand, micro one-vs-rest ROC AUC for play years and level,
+- **Fold-local fitting** for `SelectKBest`, imputation and scaling. The label-free variance filter is the
+  one step fitted on all training rows.
+- **Metric:** ROC AUC for gender and handedness, micro one-vs-rest ROC AUC for play years and level,
   averaged over the four targets.
-- **Search budget:** Optuna prunes weak trials after each fold; each target's search is capped at 2.5 hours.
+- **Search budget:** Optuna's `MedianPruner` stops weak trials after each fold; each target's search has a
+  2.5-hour timeout.
 
-The best Optuna trial is chosen on the same folds it is scored on, so its cross-validation score is
-somewhat optimistic; confirming it needs a fresh player split.
+The best Optuna trial is chosen on the same folds it is scored on, and those folds also drive early
+stopping, so its cross-validation score is somewhat optimistic; confirming it needs a fresh player split.
+The Optuna sampler is not seeded, so a rerun can pick different trials.
+
+**Minority classes per validation fold.** `GroupKFold` keeps players apart but balances recordings, not
+classes. Some folds contain no player of a minority class; a binary fold without one has no defined AUC
+and drops out of the fold average (one fold for gender, two for handedness).
+
+| Minority-class players | F1 | F2 | F3 | F4 | F5 |
+| --- | --- | --- | --- | --- | --- |
+| Gender: class 2 | 2 | **0** | 2 | 3 | 1 |
+| Left-handed | **0** | 2 | 3 | **0** | 2 |
+| Play years: low | 1 | **0** | **0** | 3 | 4 |
+| Level: youth national team | **0** | 2 | **0** | **0** | 1 |
 
 <details>
 <summary><b>Configuration constants</b></summary>
@@ -187,7 +214,8 @@ submission_catboost_tsfel_gpu_v7.csv               submission file
 | The 27 windows are equally spaced (as is `cut_point`), so they include the quiet start and wind-down and drift against real swings | Detect swings in the signal, e.g. from peaks of the smoothed gyroscope magnitude |
 | The gyroscope saturates at ±32,768 during fast swings, clipping peak rotation speed | Add saturation-aware features, such as the share of clipped samples |
 | The swing mode is not used, although air swings, machine-fed hits and aerobic tests differ | Condition on `mode` |
-| One 5-fold split over 42 players, no uncertainty estimate | Nested, repeated player-grouped CV |
+| One 5-fold split over 42 players, some folds without a minority-class player, no uncertainty estimate | `StratifiedGroupKFold`, nested and repeated |
+| The Optuna sampler is not seeded | Seed the TPE sampler |
 | Swings are summarized before modeling | Model each swing and pool predictions per recording |
 
 ## Data & license
